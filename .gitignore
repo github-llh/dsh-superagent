@@ -1,5 +1,5 @@
 node_modules/
-lib/
+# lib/ is committed on purpose: installs from `github:` run no build step, so the bundle must ship its built entry points.
 .artifacts/
 .env
 coverage/
