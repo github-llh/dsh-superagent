@@ -437,6 +437,16 @@ it('tells the main Session of the settings, prompts, requeues and unsubscription
   expect(notices().slice(before).filter(notice => !('ticket_ended' in notice))).toEqual([])
 })
 
+it('dismisses the problem an unavailable decision shows through the tool, and refuses an id without one', async () => {
+  const trigger = feishu('9', '@bot 帮个忙')
+  h.runtime.receive(trigger)
+  await h.runtime.idle()
+  const decision = h.runtime.engine.decide(trigger.id, { kind: 'unavailable', reason: 'model down' })
+  expect(await h.runTool(h.runtime.masterId, 'orchestrator_dismiss', { decision_id: decision.id })).toEqual({ dismissed: true, decision_id: decision.id })
+  expect(h.runtime.store.decisions.get(decision.id)).toMatchObject({ dismissed: true })
+  await expect(h.runTool(h.runtime.masterId, 'orchestrator_dismiss', { decision_id: 'missing' })).rejects.toThrow(UserError)
+})
+
 it('answers a policy sync with the counts and what changed, not the whole list', async () => {
   vi.mocked(Commands.prototype.lark).mockResolvedValue({ users: [{ member_id: 'ou_alice', name: 'Alice' }, { member_id: 'ou_bob', name: 'Bob' }], has_more: false })
   expect(await h.runTool(h.runtime.masterId, 'orchestrator_policy_sync', { source: 'feishu' })).toEqual({ source: 'feishu', allowed: 2, added: ['Bob'], removed: [] })

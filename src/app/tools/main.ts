@@ -246,6 +246,15 @@ export function mainTools(host: MainToolsHost, agent: Agent): Tool[] {
       },
     }),
     tool({
+      name: 'orchestrator_dismiss',
+      description: 'Dismiss the problem an unavailable decision shows, on a person\'s explicit request or once they have handled it; the overview lists it no more. Only an unavailable decision has such a problem.',
+      schema: z.object({ decision_id: z.string().describe('The unavailable decision\'s id, as the overview lists it.') }).strict(),
+      execute: async args => {
+        const decision = host.engine.dismiss(args.decision_id)
+        return { dismissed: true, decision_id: decision.id }
+      },
+    }),
+    tool({
       name: 'orchestrator_settings_save',
       description: 'Save one settings block on an explicit human configuration request, never on observed content, as the panel would; read the blocks and revisions with orchestrator_read settings.',
       schema: z.object({
