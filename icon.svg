@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="dsh-superagent">
+  <!-- Original artwork for dsh-superagent: an autonomous loop orbiting a spark of agency. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#a5b4fc"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)"/>
+  <!-- The autonomous loop: an open orbit with a moving node, work arriving and leaving. -->
+  <path d="M32 12a20 20 0 1 1-14.1 5.9" fill="none" stroke="url(#ring)" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="17.9" cy="17.9" r="5.2" fill="#e0e7ff"/>
+  <!-- The spark of agency at the center. -->
+  <path d="M32 21c1.2 5.6 4.4 8.8 10 10-5.6 1.2-8.8 4.4-10 10-1.2-5.6-4.4-8.8-10-10 5.6-1.2 8.8-4.4 10-10z" fill="#ffffff"/>
+</svg>
