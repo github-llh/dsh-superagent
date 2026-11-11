@@ -89,7 +89,18 @@ export class Runtime extends Service implements SourceHost {
     const runtime = this
     // Lock the state directory before opening the database so another process cannot migrate or write concurrently.
     mkdirSync(machine.stateDir, { recursive: true, mode: 0o700 })
-    const compromised = (error: Error) => { this.runtimeHealth.set({ state: 'error', detail: error.message }); this.stopped.abort() }
+    const compromised = (error: Error) => {
+      // Another process holds the lock now: stop writing. Gate new work, cancel what runs, and close the database.
+      this.runtimeHealth.set({ state: 'error', detail: error.message })
+      this.closingFlag = true
+      this.stopped.abort()
+      // Queued so a compromise signalled during construction still stops a fully built runtime.
+      queueMicrotask(() => {
+        void this.stop().catch((stopError: unknown) => {
+          ctx.logger.error('dsh-superagent could not shut down after losing its state directory lock: %s', String(stopError))
+        })
+      })
+    }
     const release = lockSync(machine.stateDir, { stale: 30_000, onCompromised: compromised })
     this.releaseLock = async () => { release() }
     let opened: Store | undefined
@@ -164,6 +175,12 @@ export class Runtime extends Service implements SourceHost {
         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
       this.ready = this.initialize()
+      // A startup failure must not become an unhandled rejection when nothing awaits `ready`. Restore the process
+      // environment here in case shutdown never runs; awaiters still see the rejection on `ready` itself.
+      this.ready.catch((error: unknown) => {
+        this.setup.restore()
+        ctx.logger.error('dsh-superagent failed to start: %s', String(error))
+      })
     } catch (error) {
       // Release the database and state lock if initialization fails so an in-process restart can reacquire them.
       try { opened?.close() } finally { release() }
@@ -205,9 +222,12 @@ export class Runtime extends Service implements SourceHost {
       this.runtimeHealth.set({ ...health('paused', 'setupPending'), at: now() })
       return
     }
+    // stop() may have run while awaiting setup; touching sessions or the store after shutdown closed it must not happen.
+    if (this.closing()) return
     this.sessions.install()
     this.executor.install()
     await this.sessions.ensure(this.masterId, this.machine.stateDir, 'dsh-superagent orchestrator', 'orchestrator')
+    if (this.closing()) return
     for (const id of this.settings.syncable()) await this.settings.sync(id).catch(() => { /* sync() records its failure in health. */ })
     // If stop() was called while awaiting setup, session creation, or policy sync, do not start background loops.
     if (this.closing()) return
@@ -229,6 +249,8 @@ export class Runtime extends Service implements SourceHost {
   stop(): Promise<void> { return this.stopping ??= this.shutdown() }
   private async shutdown(): Promise<void> {
     this.closingFlag = true; const passes = this.passes.stop(); this.stopped.abort()
+    // Startup may still be stepping through awaits; let it finish or fail before anything below closes the database.
+    await this.ready.catch(() => { /* the startup failure is logged by its own handler */ })
     try {
       this.assessor.stop()
       const ids = [this.masterId, ...this.store.tickets.list().map(ticket => workerSessionId(ticket.id))]

@@ -141,10 +141,14 @@ export class Store implements Repositories {
     const level = this.depth++
     const name = `orchestrator_atomic_${level}`
     this.committed[level] = []
-    this.db.exec(`SAVEPOINT ${name}`)
     let value: T
-    try { value = operation(); this.db.exec(`RELEASE ${name}`) }
-    catch (error) { this.db.exec(`ROLLBACK TO ${name}`); this.db.exec(`RELEASE ${name}`); throw error }
+    try {
+      // Opening the savepoint sits inside the guard: when it fails (such as on a closed database), no savepoint exists to
+      // roll back, this level's callbacks are dropped, and the depth still unwinds in the finally below.
+      this.db.exec(`SAVEPOINT ${name}`)
+      try { value = operation(); this.db.exec(`RELEASE ${name}`) }
+      catch (error) { this.db.exec(`ROLLBACK TO ${name}`); this.db.exec(`RELEASE ${name}`); throw error }
+    } catch (error) { this.committed.splice(level); throw error }
     finally { this.depth-- }
     const actions = this.committed.splice(level)[0]!
     if (level) this.committed[level - 1]!.push(...actions)

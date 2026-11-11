@@ -30,11 +30,11 @@ const RECOVERY_NOTE = 'The host restarted during this ticket. Inspect the curren
 export class Assignments extends EnginePart {
   constructor(options: EngineOptions, private readonly tickets: Tickets, private readonly replies: Replies) { super(options) }
 
-  /** Marks a non-ended assignment running, queues delivery of waiting undelivered inputs on an open ticket, and emits `assignment.started`. */
+  /** Marks a non-ended assignment running, queues delivery of waiting undelivered inputs on an open ticket, and emits `assignment.started`. A repeat call for one already running changes nothing. */
   started(ticketId: string, assignmentId: string): void {
     const ticket = this.require(ticketId)
     const assignment = ticket.assignments.find(item => item.id === assignmentId)
-    if (!assignment || assignment.state === 'ended') return
+    if (!assignment || assignment.state === 'ended' || assignment.state === 'running') return
     assignment.state = 'running'; assignment.startedAt ??= this.now()
     ticket.updatedAt = this.now()
     this.repo.tickets.save(ticket)

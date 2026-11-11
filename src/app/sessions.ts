@@ -94,6 +94,8 @@ export class Sessions {
   private readonly agentDelivery: AgentDelivery
   /** Decorated agents mapped to their registered disposers and skill scope until the agent is disposed or `Sessions.dispose()` runs. */
   private readonly bindings = new Map<Agent, SessionBinding>()
+  /** Disposers of the host listeners and injections `install` registered, released by `dispose`. */
+  private readonly installDisposers: (() => void)[] = []
   private readonly retryHealth = new RetryHealth()
   private readonly ctx: Context
   /** Registers ordered `relay` and `notice` effect handlers that deliver to the main Session. */
@@ -107,21 +109,21 @@ export class Sessions {
   /** Subscribes to host agent and session events so newly created sessions are decorated and model-budget retries are reflected in health. Call once at startup. */
   install(): void {
     const ctx = this.ctx
-    ctx.on('agent/disposed', ({ agent }) => {
+    this.installDisposers.push(ctx.on('agent/disposed', ({ agent }) => {
       this.release(agent)
       this.retryHealth.clear(agent.id); this.updateModelHealth()
-    })
-    ctx.on('session/event', (session, event) => {
+    }))
+    this.installDisposers.push(ctx.on('session/event', (session, event) => {
       const agent = ctx.agents.get(session.id)
       const binding = agent && agent.session === session ? this.bindings.get(agent) : undefined
       if (!agent || !binding || binding.subagent) return
       this.retryHealth.observe(agent.id, event)
       this.updateModelHealth()
-    })
-    ctx.on('agent/created', async ({ agent }) => { await this.decorate(agent); return undefined })
+    }))
+    this.installDisposers.push(ctx.on('agent/created', async ({ agent }) => { await this.decorate(agent); return undefined }))
     // Opening a Session in DSH's Web UI before its first turn may select the default preset for it: select ours again. After
     // its first turn DSH refuses any selection, which leaves it as it is.
-    ctx.inject(['agentPresets'], child => {
+    const presetsScope = ctx.inject(['agentPresets'], child => {
       child.on('agent-preset/selected', (sessionId, preset) => {
         const ticketId = ticketOfSession(sessionId), agent = ctx.agents.get(sessionId as SessionId)
         const ours = sessionId === this.host.masterId ? ROUTER_PRESET : ticketId && this.host.store.tickets.get(ticketId) ? WORKER_PRESET : undefined
@@ -130,9 +132,10 @@ export class Sessions {
         presets.select(agent, ours).catch(() => {})
       })
     })
-    ctx.on('agent/status', ({ agent, status }) => {
+    this.installDisposers.push(() => presetsScope.dispose())
+    this.installDisposers.push(ctx.on('agent/status', ({ agent, status }) => {
       if (status === 'idle' && !this.host.closing()) { this.retryHealth.clear(agent.id); this.updateModelHealth() }
-    })
+    }))
   }
   /** Resolves or creates session `id` in workspace `cwd`, initializes its role model, decorates it with prompts/skills/tools, sets `danger-full-access` permissions, and renames it to `title`. */
   async ensure(id: string, cwd: string, title: string, role: 'orchestrator' | 'worker'): Promise<Agent> {
@@ -347,6 +350,11 @@ export class Sessions {
       try { dispose() } catch (error) { this.ctx.logger.warn('dsh-superagent could not release what it registered for a Session: %s', String(error)) }
     }
   }
-  /** Releases prompt sections, skills, and tools registered by `Sessions` across all decorated agents. */
-  dispose(): void { for (const agent of [...this.bindings.keys()]) this.release(agent) }
+  /** Releases prompt sections, skills, and tools registered by `Sessions` across all decorated agents, and the host listeners `install` registered. */
+  dispose(): void {
+    for (const dispose of this.installDisposers.splice(0).reverse()) {
+      try { dispose() } catch (error) { this.ctx.logger.warn('dsh-superagent could not release a host listener: %s', String(error)) }
+    }
+    for (const agent of [...this.bindings.keys()]) this.release(agent)
+  }
 }

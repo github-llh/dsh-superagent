@@ -192,9 +192,12 @@ function migrateSettingsRecords(store: Store): void {
   }
   // Preserve unparseable historical revisions as-is so a corrupt history entry does not block startup.
   for (const name of store.keys('settings-version:')) {
-    const version = store.get<{ source: string; settings: unknown }>(name)!
-    const settings = SettingsSchema.safeParse(migrateSettings(version.settings))
-    store.set(name, { ...version, source: ORIGINS[version.source] ?? version.source, ...settings.success ? { settings: settings.data } : {} })
+    const version = store.get<{ source: string; settings: unknown }>(name)
+    if (!version) continue
+    try {
+      const settings = SettingsSchema.safeParse(migrateSettings(version.settings))
+      store.set(name, { ...version, source: ORIGINS[version.source] ?? version.source, ...settings.success ? { settings: settings.data } : {} })
+    } catch { /* A damaged entry stays as it is. */ }
   }
 }
 interface Member { name?: string; feishuId?: string; github?: string }
@@ -300,7 +303,10 @@ function normalize(config: unknown): PromptConfig {
  */
 function migratePrompts(store: Store): void {
   // Preserve original configs on legacy or unparseable revisions, falling back to the last readable config so sessions always have valid prompts.
-  const versions = store.keys('prompt-version:').map(name => store.get<PromptVersion & { config: unknown }>(name)!).sort((a, b) => a.revision - b.revision)
+  const versions = store.keys('prompt-version:').flatMap(name => {
+    const version = store.get<PromptVersion & { config: unknown }>(name)
+    return version ? [version] : []
+  }).sort((a, b) => a.revision - b.revision)
   let readable: PromptConfig = { ...teamDefaults, skills: {} }
   for (const version of versions) {
     const legacy = LegacyPromptConfigSchema.safeParse(version.config).success
